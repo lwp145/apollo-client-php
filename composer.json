@@ -1,0 +1,25 @@
+{
+  "name": "lwp145/apollo-client-php",
+  "description": "apollo client for php",
+  "type": "library",
+  "license": "MIT",
+  "keywords": [
+    "Apollo",
+    "Client",
+    "PHP"
+  ],
+  "homepage": "https://github.com/lwp145/apollo-client-php",
+  "config": {
+    "vendor-dir": "vendor",
+    "secure-http": false
+  },
+  "repositories": {
+    "packagist": {
+      "type": "composer",
+      "url": "https://packagist.phpcomposer.com"
+    }
+  },
+  "require": {
+    "php": "~7.0"
+  }
+}
