@@ -19,7 +19,7 @@ class ApolloClient
      * @param string $appId apollo配置项目的appid
      * @param array $namespaces apollo配置项目的namespace
      */
-    public function __construct($configServer, $appId, array $namespaces)
+    public function __construct($configServer, $appId = '', array $namespaces = array())
     {
         $this->configServer = $configServer;
 //        foreach ($namespaces as $namespace) {
@@ -215,8 +215,110 @@ class ApolloClient
         }
     }
 
-    public function startNew($request_param, $callback = null)
+    public function startNew2(array $need_update_files, array $request_param, $callback = null)
     {
+        $multi_ch = curl_multi_init();
+        $request_list = array();
+        $base_url = rtrim($this->configServer, '/') . '/notifications/v2?';
+        $params = array();
+        foreach ($request_param as $key => $val) {
+            $request = array();
+            $tmp = explode('.', $key);
+            $params['appId'] = $tmp[0];
+            $params['cluster'] = $tmp[1];
+            $params['notifications'] = json_encode($val['notifications']);
+            $query = http_build_query($params);
+            $request_url = $base_url . $query;
+            $ch = curl_init($request_url);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 80);
+            curl_setopt($ch, CURLOPT_HEADER, false);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+            $request['ch'] = $ch;
+            $request_list[$key] = $request;
+            curl_multi_add_handle($multi_ch, $ch);
+        }
+
+        $active = null;
+        // 执行批处理句柄
+        do {
+            $mrc = curl_multi_exec($multi_ch, $active);
+        } while ($mrc == CURLM_CALL_MULTI_PERFORM);
+
+        while ($active && $mrc == CURLM_OK) {
+            if (curl_multi_select($multi_ch) == -1) {
+                usleep(100);
+            }
+            do {
+                $mrc = curl_multi_exec($multi_ch, $active);
+            } while ($mrc == CURLM_CALL_MULTI_PERFORM);
+
+        }
+
+        // 获取结果
+        foreach ($request_list as $key => $req) {
+            $result = curl_multi_getcontent($req['ch']);
+            $httpCode = curl_getinfo($req['ch'],CURLINFO_HTTP_CODE);
+            $error = curl_error($req['ch']);
+            curl_multi_remove_handle($multi_ch,$req['ch']);
+            curl_close($req['ch']);
+            var_dump($result);
+            var_dump($httpCode);
+            var_dump($error);
+        }
+       die;
+
+    }
+
+    public function startNew(array $need_update_files, array $request_param, array $others,$callback = null)
+    {
+        $multi_ch = curl_multi_init();
+        $request_list = array();
+        $base_url = rtrim($this->configServer, '/') . '/notifications/v2?';
+        $params = array();
+        foreach ($others as $key => $val) {
+            $request = array();
+            $params['appId'] = $val['appId'];
+            $params['cluster'] = $val['cluster'];
+            $params['notifications'] = json_encode($val['notifications']);
+            $query = http_build_query($params);
+            $request_url = $base_url . $query;
+            $ch = curl_init($request_url);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 80);
+            curl_setopt($ch, CURLOPT_HEADER, false);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+            $request['ch'] = $ch;
+            $request_list[$key] = $request;
+            curl_multi_add_handle($multi_ch, $ch);
+        }
+
+        $active = null;
+        // 执行批处理句柄
+        do {
+            $mrc = curl_multi_exec($multi_ch, $active);
+        } while ($mrc == CURLM_CALL_MULTI_PERFORM);
+
+        while ($active && $mrc == CURLM_OK) {
+            if (curl_multi_select($multi_ch) == -1) {
+                usleep(100);
+            }
+            do {
+                $mrc = curl_multi_exec($multi_ch, $active);
+            } while ($mrc == CURLM_CALL_MULTI_PERFORM);
+
+        }
+
+        // 获取结果
+        foreach ($request_list as $key => $req) {
+            $result = curl_multi_getcontent($req['ch']);
+            $httpCode = curl_getinfo($req['ch'],CURLINFO_HTTP_CODE);
+            $error = curl_error($req['ch']);
+            curl_multi_remove_handle($multi_ch,$req['ch']);
+            curl_close($req['ch']);
+            var_dump($result);
+            var_dump($httpCode);
+            var_dump($error);
+        }
+        die;
 
     }
 }

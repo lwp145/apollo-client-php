@@ -15,7 +15,7 @@ $db_password = \Conf\ApolloConf::DB_PASSWORD;
 $configs_dir = \Conf\ApolloConf::$CONFIGS_DIR;
 $server = '192.168.33.66:8080';
 
-$all_files = array();
+$need_update_files = array();
 foreach ($configs_dir as $dir) {
     if (!file_exists($dir)) {
         var_dump($dir . '目录不存在');die;
@@ -23,25 +23,40 @@ foreach ($configs_dir as $dir) {
     $path = $dir . '/' . '*.schema.php';
     $files = glob($path);
     foreach ($files as $file) {
-        $all_files[] = $file;
+        $need_update_files[] = $file;
     }
 }
 
-$request_param = array();
-foreach ($all_files as $file) {
-    $flag = strrpos($file, '/') + 1;
-    $path = substr($file, 0, $flag);
-    $need_param = str_replace('.schema.php','',substr($file, $flag));
-    if (isset($request_param[$need_param])) {
-        if (in_array($path, $request_param[$need_param])) {
+$request_params = array();
 
-        } else {
-            $request_param[$need_param][] = $path;
-        }
+$others = array();
+foreach ($need_update_files as $file) {
+    $start = strrpos($file, '/') + 1;
+    $tmp = explode('.', substr($file, $start));
+    $appId = $tmp[0];
+    $cluster = $tmp[1];
+    $namespace = $tmp[2];
+    $appId_cluster = $appId . '.' . $cluster;
+    $other['appId'] = $tmp[0];
+    $other['cluster'] = $tmp[1];
+    $other['namespaces'] = $namespace;
+    $other['notifications'] = array(
+        array('namespaceName' => $namespace,
+            'notificationId' => -1)
+    );
+    if (isset($request_params[$appId_cluster]) && in_array($namespace, $request_params[$appId_cluster]['namespaces'])) {
+
     } else {
-        $request_param[$need_param][] = $path;
+        $request_params[$appId_cluster]['namespaces'][] = $namespace;
+        $request_params[$appId_cluster]['notifications'][] = array(
+            'namespaceName' => $namespace,
+            'notificationId' => -1
+        );
     }
+    $others[] = $other;
 }
+//print_r('<pre>');
+//print_r($others);die;
 
 $apollo = new ApolloClient($server);
 ini_set('memory_limit', '128M');
@@ -51,7 +66,7 @@ $restart = false; // 失败自动重启
 $callback = function(){};
 do {
     //$error = $apollo->start($callback);
-    $error = $apollo->startNew($request_param, $callback);
+    $error = $apollo->startNew($need_update_files,$request_params, $others, $callback);
 }while($error && $restart);
 
 
