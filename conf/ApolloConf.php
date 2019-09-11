@@ -52,7 +52,6 @@ class ApolloConf
      */
     public static $CONFIGS_DIR = array(
         '/home/wenpol/www/think-5.1/CustomConfig',
-        '/home/wenpol/www/think-5.1/CustomConfig',
-        '/home/wenpol/www/think-5.1/CustomConfig',
+        '/home/wenpol/www/json/CustomConfig',
     );
 }

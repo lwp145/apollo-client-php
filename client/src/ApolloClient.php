@@ -22,11 +22,10 @@ class ApolloClient
     public function __construct($configServer, $appId, array $namespaces)
     {
         $this->configServer = $configServer;
-        $this->appId = $appId;
-        foreach ($namespaces as $namespace) {
-            $this->notifications[$namespace] = ['namespaceName' => $namespace, 'notificationId' => -1];
-        }
-        $this->save_dir = dirname($_SERVER['SCRIPT_FILENAME']);
+//        foreach ($namespaces as $namespace) {
+//            $this->notifications[$namespace] = ['namespaceName' => $namespace, 'notificationId' => -1];
+//        }
+        //$this->save_dir = dirname($_SERVER['SCRIPT_FILENAME']);
     }
 
     public function setCluster($cluster)
@@ -214,5 +213,10 @@ class ApolloClient
             curl_close($ch);
             return $e->getMessage();
         }
+    }
+
+    public function startNew($request_param, $callback = null)
+    {
+
     }
 }
