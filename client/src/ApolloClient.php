@@ -215,26 +215,50 @@ class ApolloClient
         }
     }
 
-    public function startNew(array $need_update_files, array $request_param, $callback = null)
+    public function startNew(array $needToBeLoadedFiles, array $listenChangeParams, $callback)
     {
-        $multi_ch = curl_multi_init();
-        $request_list = array();
+        try {
+            // 获取有变化的namespace列表.
+            $result = $this->getRequestList($listenChangeParams);
+            $change_list = $this->getChangeList($result);
+            // 拉取有变化的namespace最新的内容并生成文件.
+            $this->batchPullChangeConfigAndGeneralLatestConfigFiles($change_list, $needToBeLoadedFiles);
+
+        } catch (\Exception $e) {
+            return $e->getMessage();
+        }
+    }
+
+    private function getRequestList($listenChangeParams)
+    {
+        $return = array(
+            'request_list' => array(),
+            'multi_ch' => ''
+        );
+
         $base_url = rtrim($this->configServer, '/') . '/notifications/v2?';
-        $params = array();
-        foreach ($request_param as $key => $val) {
-            $request = array();
-            $tmp = explode('.', $key);
-            $params['appId'] = $tmp[0];
-            $params['cluster'] = $tmp[1];
-            $params['notifications'] = json_encode($val['notifications']);
-            $query = http_build_query($params);
-            $request_url = $base_url . $query;
-            $ch = curl_init($request_url);
+
+        $multi_ch = curl_multi_init();
+
+        foreach ($listenChangeParams as $key => $param) {
+            $notifications = $param['notifications'];
+            foreach ($notifications as &$notification) {
+                unset($notification['releaseKey']);
+            }
+            $requestParam = array(
+                'appId' => $param['appId'],
+                'cluster' => $param['cluster'],
+                'notifications' => json_encode($notifications)
+            );
+
+            $url = $base_url . http_build_query($requestParam);
+
+            $ch = curl_init($url);
             curl_setopt($ch, CURLOPT_TIMEOUT, 80);
             curl_setopt($ch, CURLOPT_HEADER, false);
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
-            $request['ch'] = $ch;
-            $request_list[$key] = $request;
+            $param['ch'] = $ch;
+            $return['request_list'][$key] = $param;
             curl_multi_add_handle($multi_ch, $ch);
         }
 
@@ -253,45 +277,122 @@ class ApolloClient
             } while ($mrc == CURLM_CALL_MULTI_PERFORM);
 
         }
+        $return['multi_ch'] = $multi_ch;
+        return $return;
+    }
 
-        // 获取改变列表
+    private function getChangeList($param)
+    {
         $change_list = array();
+        $request_list = $param['request_list'];
+        $multi_ch = $param['multi_ch'];
         foreach ($request_list as $key => $req) {
             $result = curl_multi_getcontent($req['ch']);
-            $httpCode = curl_getinfo($req['ch'],CURLINFO_HTTP_CODE);
+            $httpCode = curl_getinfo($req['ch'], CURLINFO_HTTP_CODE);
             $error = curl_error($req['ch']);
-            curl_multi_remove_handle($multi_ch,$req['ch']);
+            curl_multi_remove_handle($multi_ch, $req['ch']);
             curl_close($req['ch']);
             if ($httpCode == 200) {
                 // 成功
-                $result = json_decode($result, true);
-                foreach ($result as $k => $v) {
-                    $change_list[] = array(
-                        'namespaceName' => $v['namespaceName'],
-                        'notificationId' => $v['notificationId'],
-                        'details' => $v['messages']['details']
-                    );
+                $list = json_decode($result, true);
+                foreach ($list as $change) {
+                    $cc['appId'] = $req['appId'];
+                    $cc['cluster'] = $req['cluster'];
+                    $cc['namespaceName'] = $change['namespaceName'];
+                    $cc['notificationId'] = $change['notificationId'];
+                    $cc['ip'] = $this->clientIp;
+                    $cc['details'] = $change['messages']['details'];
+                    $releaseKey = '';
+                    foreach ($req['notifications'] as $notification) {
+                        if ($notification['namespaceName'] == $change['namespaceName']) {
+                            $releaseKey = $notification['releaseKey'];
+                            break;
+                        }
+                    }
+                    $cc['releaseKey'] = $releaseKey;
+                    $change_list[] = $cc;
                 }
-
-            } elseif ($httpCode == 400) {
-                // bad request
-            } elseif ($httpCode == 404) {
-                // not found
-            } elseif ($httpCode == 405) {
-                // method not allowed
-            } elseif ($httpCode == 500) {
-                // internal server error
-            } else {
-                // unkonwn error
+            } elseif ($httpCode != 304) {
+                // 此处要写日志
+                throw new \Exception('[Code]: ' . $httpCode . ' [Result] ' . $result);
             }
         }
         curl_multi_close($multi_ch);
-
-        // 拉取改变列表的配置
+        return $change_list;
     }
 
-    public function pullConfigBatch2(array $change_list)
+    private function batchPullChangeConfigAndGeneralLatestConfigFiles($change_list, $needToBeLoadedFiles)
     {
+        $multi_ch = curl_multi_init();
+
+        $request_list = array();
+
+        foreach ($change_list as $k => $change) {
+            $request = array();
+            $query = array(
+                'releaseKey' => $change['releaseKey'],
+                'ip' => $change['ip']
+            );
+            $url = rtrim($this->configServer, '/').'/configs/' . $change['appId'] . '/' . $change['cluster'] . '/' . $change['namespaceName'] . '?'.http_build_query($query);;
+            $ch = curl_init($url);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+            curl_setopt($ch, CURLOPT_HEADER, false);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+            $request['ch'] = $ch;
+            $request['appId'] = $change['appId'];
+            $request['cluster'] = $change['cluster'];
+            $request['namespaceName'] = $change['namespaceName'];
+            $request['notificationId'] = $change['notificationId'];
+            $request['details'] = $change['details'];
+            $request['willGeneralConfigFileName'] = $change['appId'] . '.' . $change['cluster'] . '.' . $change['namespaceName'];
+            $request_list[] = $request;
+            curl_multi_add_handle($multi_ch, $ch);
+
+        }
+
+        $active = null;
+        // 执行批处理句柄
+        do {
+            $mrc = curl_multi_exec($multi_ch, $active);
+        } while ($mrc == CURLM_CALL_MULTI_PERFORM);
+
+        while ($active && $mrc == CURLM_OK) {
+            if (curl_multi_select($multi_ch) == -1) {
+                usleep(100);
+            }
+            do {
+                $mrc = curl_multi_exec($multi_ch, $active);
+            } while ($mrc == CURLM_CALL_MULTI_PERFORM);
+
+        }
+
+        // 获取结果
+
+        foreach ($request_list as $k => $req) {
+            $result = curl_multi_getcontent($req['ch']);
+            $httpCode = curl_getinfo($req['ch'], CURLINFO_HTTP_CODE);
+            $error = curl_error($req['ch']);
+            curl_multi_remove_handle($multi_ch, $req['ch']);
+            curl_close($req['ch']);
+            if ($httpCode == 200) {
+                // 写入文件
+                $result = json_decode($result, true);
+                $result['notificationId'] = $req['notificationId'];
+                foreach ($needToBeLoadedFiles as $file) {
+                    if (strpos($file, $req['willGeneralConfigFileName']) !== false) {
+                        $file = str_replace('.schema', '', $file);
+                        $content = '<?php' . "\n" . 'return ' .var_export($result, true). ';';
+                        file_put_contents($file, $content);
+                        echo $file;
+                        echo "\n";
+                    }
+                }
+
+            } elseif ($httpCode != 304) {
+                // 要记日志
+            }
+        }
+        curl_multi_close($multi_ch);
 
     }
 

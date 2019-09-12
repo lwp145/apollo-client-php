@@ -15,7 +15,7 @@ $db_password = \Conf\ApolloConf::DB_PASSWORD;
 $configs_dir = \Conf\ApolloConf::$CONFIGS_DIR;
 $server = '192.168.33.66:8080';
 
-$need_update_files = array();
+$needToBeLoadedFiles = array();
 foreach ($configs_dir as $dir) {
     if (!file_exists($dir)) {
         var_dump($dir . '目录不存在');die;
@@ -23,51 +23,59 @@ foreach ($configs_dir as $dir) {
     $path = $dir . '/' . '*.schema.php';
     $files = glob($path);
     foreach ($files as $file) {
-        $need_update_files[] = $file;
+        $needToBeLoadedFiles[] = $file;
     }
 }
 
-$request_params = array();
+$listenChangeParams = array();
 
-$others = array();
-foreach ($need_update_files as $file) {
-    $start = strrpos($file, '/') + 1;
-    $tmp = explode('.', substr($file, $start));
-    $appId = $tmp[0];
-    $cluster = $tmp[1];
-    $namespace = $tmp[2];
+foreach ($needToBeLoadedFiles as $file) {
+
+    $expectGenerateConfigFile = str_replace('.schema', '', $file);
+
+    if (file_exists($expectGenerateConfigFile)) {
+        $content = include $expectGenerateConfigFile;
+    } else {
+        $content = include $file;
+    }
+
+    $appId = $content['appId'];
+    $cluster = $content['cluster'];
+    $namespaceName = $content['namespaceName'];
+    $notificationId = $content['notificationId'];
+    $releaseKey = $content['releaseKey'];
     $appId_cluster = $appId . '.' . $cluster;
-    $other['appId'] = $tmp[0];
-    $other['cluster'] = $tmp[1];
-    $other['namespaces'] = $namespace;
-    $other['notifications'] = array(
-        array('namespaceName' => $namespace,
-            'notificationId' => -1)
-    );
-    if (isset($request_params[$appId_cluster]) && in_array($namespace, $request_params[$appId_cluster]['namespaces'])) {
+
+    if (isset($listenChangeParams[$appId_cluster]) && in_array($namespaceName, $listenChangeParams[$appId_cluster]['namespaceNames'])) {
 
     } else {
-        $request_params[$appId_cluster]['namespaces'][] = $namespace;
-        $request_params[$appId_cluster]['notifications'][] = array(
-            'namespaceName' => $namespace,
-            'notificationId' => -1
+        $listenChangeParams[$appId_cluster]['appId'] = $appId;
+        $listenChangeParams[$appId_cluster]['cluster'] = $cluster;
+        $listenChangeParams[$appId_cluster]['namespaceNames'][] = $namespaceName;
+        $listenChangeParams[$appId_cluster]['notifications'][] = array(
+            'namespaceName' => $namespaceName,
+            'notificationId' => $notificationId,
+            'releaseKey' => $releaseKey
         );
     }
-    $others[] = $other;
 }
-//print_r('<pre>');
-//print_r($others);die;
 
 $apollo = new ApolloClient($server);
+
 ini_set('memory_limit', '128M');
+
 $pid = getmypid();
+
 echo "start [$pid]\n";
+
 $restart = false; // 失败自动重启
+
 $callback = function(){};
+
 do {
-    //$error = $apollo->start($callback);
-    $error = $apollo->startNew($need_update_files,$request_params, $others, $callback);
-}while($error && $restart);
+    $apollo->startNew($needToBeLoadedFiles,$listenChangeParams, $callback);
+    sleep(10);
+}while(true);
 
 
 
