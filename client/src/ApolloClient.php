@@ -215,7 +215,7 @@ class ApolloClient
         }
     }
 
-    public function startNew2(array $need_update_files, array $request_param, $callback = null)
+    public function startNew(array $need_update_files, array $request_param, $callback = null)
     {
         $multi_ch = curl_multi_init();
         $request_list = array();
@@ -254,22 +254,48 @@ class ApolloClient
 
         }
 
-        // 获取结果
+        // 获取改变列表
+        $change_list = array();
         foreach ($request_list as $key => $req) {
             $result = curl_multi_getcontent($req['ch']);
             $httpCode = curl_getinfo($req['ch'],CURLINFO_HTTP_CODE);
             $error = curl_error($req['ch']);
             curl_multi_remove_handle($multi_ch,$req['ch']);
             curl_close($req['ch']);
-            var_dump($result);
-            var_dump($httpCode);
-            var_dump($error);
+            if ($httpCode == 200) {
+                // 成功
+                $result = json_decode($result, true);
+                foreach ($result as $k => $v) {
+                    $change_list[] = array(
+                        'namespaceName' => $v['namespaceName'],
+                        'notificationId' => $v['notificationId'],
+                        'details' => $v['messages']['details']
+                    );
+                }
+
+            } elseif ($httpCode == 400) {
+                // bad request
+            } elseif ($httpCode == 404) {
+                // not found
+            } elseif ($httpCode == 405) {
+                // method not allowed
+            } elseif ($httpCode == 500) {
+                // internal server error
+            } else {
+                // unkonwn error
+            }
         }
-       die;
+        curl_multi_close($multi_ch);
+
+        // 拉取改变列表的配置
+    }
+
+    public function pullConfigBatch2(array $change_list)
+    {
 
     }
 
-    public function startNew(array $need_update_files, array $request_param, array $others,$callback = null)
+    public function startNew2(array $need_update_files, array $request_param, array $others,$callback = null)
     {
         $multi_ch = curl_multi_init();
         $request_list = array();
